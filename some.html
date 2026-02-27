@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jambostar Buses | Enterprise Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .seat { width: 35px; height: 35px; cursor: pointer; transition: 0.2s; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; }
+        .seat-available { background-color: #e2e8f0; border: 2px solid #cbd5e1; color: #64748b; }
+        .seat-available:hover { background-color: #fcd34d; border-color: #fbbf24; color: #78350f; }
+        .seat-selected { background-color: #3b82f6 !important; border-color: #2563eb !important; color: white !important; }
+        .seat-occupied { background-color: #94a3b8 !important; border: 2px solid #64748b !important; color: white !important; cursor: not-allowed !important; opacity: 0.6; }
+        .aisle { width: 40px; }
+        .hidden { display: none; }
+
+        /* Loading Spinner */
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #1e3a8a; border-radius: 50%; width: 18px; height: 18px; animation: spin 1s linear infinite; display: inline-block; margin-right: 8px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #ticket-receipt, #ticket-receipt * { visibility: visible; }
+            #ticket-receipt { position: absolute; left: 0; top: 0; width: 100%; border: none; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <div id="receipt-overlay" class="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center hidden">
+        <div id="ticket-receipt" class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center border-t-8 border-blue-900 mx-4">
+            <h2 class="text-2xl font-black text-blue-900">JAMBOSTAR</h2>
+            <div class="border-y border-dashed border-gray-200 py-4 my-4 text-left space-y-2">
+                <p class="text-xs text-gray-500 font-bold">DATE: <span id="rec-date" class="text-blue-900 block text-base"></span></p>
+                <p class="text-xs text-gray-500 font-bold">PASSENGER: <span id="rec-name" class="text-blue-900 block text-base"></span></p>
+                <p class="text-xs text-gray-500 font-bold">ROUTE: <span id="rec-route" class="text-blue-900 block text-base"></span></p>
+                <p class="text-xs text-gray-500 font-bold">SEATS: <span id="rec-seats" class="text-blue-900 block text-base"></span></p>
+                <p class="text-xs text-gray-500 font-bold">TOTAL: <span id="rec-total" class="text-blue-900 block text-base"></span></p>
+            </div>
+            <button onclick="window.print()" class="no-print w-full bg-blue-900 text-white font-bold py-3 rounded-xl mb-2">Print Ticket</button>
+            <button onclick="location.reload()" class="no-print w-full text-xs text-gray-400 font-bold">Close</button>
+        </div>
+    </div>
+
+    <div id="login-overlay" class="fixed inset-0 bg-blue-900 bg-opacity-95 z-50 flex items-center justify-center hidden">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md text-center mx-4">
+            <h1 class="text-2xl font-black text-blue-900 mb-6 uppercase">Admin Login</h1>
+            <input id="admin-pass" type="password" placeholder="Password" class="w-full border-2 border-gray-100 p-4 rounded-xl mb-4 text-center outline-none focus:border-yellow-400">
+            <button onclick="checkLogin()" class="w-full bg-blue-900 text-white font-bold py-4 rounded-xl hover:bg-black">Login</button>
+            <button onclick="closeLogin()" class="mt-4 text-sm text-gray-400 font-bold">Cancel</button>
+        </div>
+    </div>
+
+    <nav class="bg-blue-900 text-white p-4 shadow-md sticky top-0 z-40 no-print">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-black text-yellow-400 tracking-tighter">JAMBOSTAR</h1>
+            <div class="flex gap-4">
+                <button onclick="showPage('student-page')" class="text-xs font-bold uppercase">Booking</button>
+                <button onclick="openLoginModal()" class="bg-yellow-400 text-blue-900 px-3 py-1 rounded-md text-[10px] font-black uppercase">Admin</button>
+            </div>
+        </div>
+    </nav>
+
+    <main id="student-page" class="container mx-auto py-8 px-4 grid lg:grid-cols-2 gap-10 no-print">
+        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+            <h2 class="text-lg font-bold mb-6 flex justify-between items-center">
+                <span>Bus Seating</span>
+                <span id="displayDate" class="text-blue-600 text-sm font-black"></span>
+            </h2>
+            <div id="bus-layout" class="flex flex-col items-center gap-2"></div>
+        </div>
+
+        <div class="bg-blue-900 text-white p-8 rounded-2xl shadow-xl h-fit">
+            <h3 class="text-xl font-bold mb-6">Reservation Details</h3>
+            <form onsubmit="handleBookingSubmit(event)" class="space-y-4">
+                <div>
+                    <label class="text-[10px] font-bold text-blue-300 uppercase block mb-1">Travel Date</label>
+                    <input type="date" id="travelDate" onchange="handleDateChange()" class="w-full bg-blue-800 p-4 rounded-xl text-white border-none outline-none focus:ring-2 ring-yellow-400" required>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-blue-300 uppercase block mb-1">Route</label>
+                    <select id="routeSelect" onchange="updateSummary()" class="w-full bg-blue-800 p-4 rounded-xl text-white border-none outline-none">
+                        <option value="150" data-route="Athi ➔ Syokimau">Athi ➔ Syokimau (Ksh 150)</option>
+                        <option value="200" data-route="Athi ➔ Nairobi">Athi ➔ Nairobi (Ksh 200)</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-blue-800 p-4 rounded-xl text-center"><span class="text-[10px] block text-blue-300">SEATS</span><span id="seatCount" class="text-xl font-black text-yellow-400">0</span></div>
+                    <div class="bg-yellow-400 p-4 rounded-xl text-center"><span class="text-[10px] block text-blue-900 font-bold">TOTAL</span><span id="totalPriceDisplay" class="text-xl font-black text-blue-900">0</span></div>
+                </div>
+                
+                <input id="phoneNumber" type="tel" placeholder="M-Pesa Number (2547XXXXXXXX)" class="w-full bg-blue-800 p-4 rounded-xl text-white outline-none focus:ring-2 ring-yellow-400" required>
+                
+                <input id="studentName" type="text" placeholder="Full Name" class="w-full bg-blue-800 p-4 rounded-xl text-white outline-none focus:ring-2 ring-yellow-400" required>
+                
+                <button id="bookBtn" type="submit" class="w-full bg-yellow-400 text-blue-900 font-black py-4 rounded-xl hover:bg-white text-lg transition-all">PAY & GENERATE TICKET</button>
+            </form>
+        </div>
+    </main>
+
+    <main id="admin-page" class="container mx-auto py-8 px-4 hidden no-print">
+        <div class="bg-white p-8 rounded-2xl shadow-lg">
+            <div class="flex flex-col md:flex-row justify-between gap-4 mb-8">
+                <h2 class="text-2xl font-black text-blue-900 uppercase">Admin Dashboard</h2>
+                <div class="flex gap-2">
+                    <button onclick="clearPastBookings()" class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-xs font-bold uppercase hover:bg-blue-200">Clear Old Data</button>
+                    <input type="text" id="adminSearch" onkeyup="loadAdminData()" placeholder="Search..." class="border-2 p-2 rounded-lg outline-none focus:border-blue-900 w-48">
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead><tr class="text-gray-400 uppercase text-[10px] border-b"><th class="p-2">Date</th><th class="p-2">Name</th><th class="p-2">Route</th><th class="p-2">Seats</th><th class="p-2">Amount</th></tr></thead>
+                    <tbody id="admin-table-body"></tbody>
+                </table>
+            </div>
+            <button onclick="clearAllBookings()" class="mt-10 text-[10px] text-red-400 font-bold uppercase underline">Emergency: Wipe All Data</button>
+        </div>
+    </main>
+
+    <script>
+        let selectedSeats = [];
+        const ADMIN_PASS = "jambostar2026";
+
+        window.onload = () => {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('travelDate').value = today;
+            document.getElementById('travelDate').min = today;
+            handleDateChange();
+        };
+
+        // --- M-PESA LOGIC START ---
+        async function handleBookingSubmit(e) {
+            e.preventDefault();
+            if(!selectedSeats.length) return alert("Select at least one seat!");
+
+            const phone = document.getElementById('phoneNumber').value;
+            const amount = selectedSeats.length * parseInt(document.getElementById('routeSelect').value);
+            const btn = document.getElementById('bookBtn');
+
+            // Phone Validation
+            if(!phone.startsWith('254') || phone.length !== 12) {
+                return alert("❌ Phone format incorrect!\n\nMust be: 254712345678\n(254 + 10 digits)");
+            }
+
+            // Show Loading State
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loader"></span> WAITING FOR PIN...';
+
+            try {
+                // UPDATE THIS URL to your Ngrok URL or Backend URL
+                const response = await fetch('http://localhost:3000/stkpush', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, amount })
+                });
+
+                const result = await response.json();
+
+                if (result.ResponseCode === "0") {
+                    alert("M-Pesa Prompt sent! Please enter your PIN.");
+                    confirmBooking(); // Procedural booking
+                } else {
+                    alert("❌ Error:\n\n" + result.ResponseDescription + 
+                          (result.errorDetails ? "\n\nDetails: " + result.errorDetails : ""));
+                }
+            } catch (error) {
+                console.error(error);
+                alert("❌ Server Error:\n\n" + error.message + "\n\nIs your Node.js backend running on http://localhost:3000?");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "PAY & GENERATE TICKET";
+            }
+        }
+        // --- M-PESA LOGIC END ---
+
+        function handleDateChange() {
+            selectedSeats = [];
+            updateSummary();
+            renderBus();
+            document.getElementById('displayDate').innerText = document.getElementById('travelDate').value;
+        }
+
+        function getOccupiedSeats() {
+            const bookings = JSON.parse(localStorage.getItem('jambostar_bookings') || '[]');
+            const activeDate = document.getElementById('travelDate').value;
+            let occupied = [];
+            bookings.filter(b => b.date === activeDate).forEach(b => {
+                occupied = occupied.concat(b.seats.split(', '));
+            });
+            return occupied;
+        }
+
+        function renderBus() {
+            const container = document.getElementById('bus-layout');
+            container.innerHTML = '';
+            const taken = getOccupiedSeats();
+
+            // Front Row
+            let front = document.createElement('div'); front.className = "flex gap-2 items-center mb-4";
+            let d = document.createElement('div'); d.className = "seat bg-gray-800 text-white w-[121px] cursor-default"; d.innerHTML = "🛞"; front.appendChild(d);
+            let aisle = document.createElement('div'); aisle.className = "aisle"; front.appendChild(aisle);
+            ['0D', '0E'].forEach(id => front.appendChild(createSeat(id, taken)));
+            container.appendChild(front);
+
+            // Main Rows
+            for (let r = 1; r <= 9; r++) {
+                let row = document.createElement('div'); row.className = "flex gap-2 mb-1";
+                ['A', 'B', 'C'].forEach(l => row.appendChild(createSeat(r+l, taken)));
+                let a = document.createElement('div'); a.className = "aisle"; row.appendChild(a);
+                ['D', 'E'].forEach(l => row.appendChild(createSeat(r+l, taken)));
+                container.appendChild(row);
+            }
+        }
+
+        function createSeat(id, taken) {
+            let s = document.createElement('div');
+            const isTaken = taken.includes(id);
+            s.className = `seat ${isTaken ? 'seat-occupied' : 'seat-available'}`;
+            s.innerText = id;
+            if(!isTaken) {
+                s.onclick = () => {
+                    if(selectedSeats.includes(id)) {
+                        selectedSeats = selectedSeats.filter(x => x !== id);
+                        s.classList.remove('seat-selected');
+                    } else if(selectedSeats.length < 5) {
+                        selectedSeats.push(id);
+                        s.classList.add('seat-selected');
+                    }
+                    updateSummary();
+                };
+            }
+            return s;
+        }
+
+        function updateSummary() {
+            const p = parseInt(document.getElementById('routeSelect').value);
+            document.getElementById('seatCount').innerText = selectedSeats.length;
+            document.getElementById('totalPriceDisplay').innerText = `Ksh ${selectedSeats.length * p}`;
+        }
+
+        function confirmBooking() {
+            const sel = document.getElementById('routeSelect');
+            const data = {
+                date: document.getElementById('travelDate').value,
+                name: document.getElementById('studentName').value,
+                route: sel.options[sel.selectedIndex].getAttribute('data-route'),
+                seats: selectedSeats.join(', '),
+                total: `Ksh ${selectedSeats.length * parseInt(sel.value)}`
+            };
+            let all = JSON.parse(localStorage.getItem('jambostar_bookings') || '[]');
+            all.push(data);
+            localStorage.setItem('jambostar_bookings', JSON.stringify(all));
+
+            document.getElementById('rec-date').innerText = data.date;
+            document.getElementById('rec-name').innerText = data.name;
+            document.getElementById('rec-route').innerText = data.route;
+            document.getElementById('rec-seats').innerText = data.seats;
+            document.getElementById('rec-total').innerText = data.total;
+            document.getElementById('receipt-overlay').classList.remove('hidden');
+        }
+
+        function loadAdminData() {
+            const bookings = JSON.parse(localStorage.getItem('jambostar_bookings') || '[]');
+            const query = document.getElementById('adminSearch').value.toLowerCase();
+            const table = document.getElementById('admin-table-body');
+            let filtered = bookings.filter(b => 
+                b.name.toLowerCase().includes(query) || 
+                b.seats.toLowerCase().includes(query) || 
+                b.date.includes(query)
+            );
+            table.innerHTML = '';
+            filtered.sort((a,b) => new Date(a.date) - new Date(b.date)).forEach(b => {
+                table.innerHTML += `<tr class="border-b"><td class="p-2 font-mono text-[10px]">${b.date}</td><td class="p-2 font-bold">${b.name}</td><td class="p-2">${b.route}</td><td class="p-2">${b.seats}</td><td class="p-2 font-black">${b.total}</td></tr>`;
+            });
+        }
+
+        function clearPastBookings() {
+            const today = new Date().toISOString().split('T')[0];
+            let bookings = JSON.parse(localStorage.getItem('jambostar_bookings') || '[]');
+            const initialCount = bookings.length;
+            bookings = bookings.filter(b => b.date >= today);
+            localStorage.setItem('jambostar_bookings', JSON.stringify(bookings));
+            alert(`Maintenance Complete: ${initialCount - bookings.length} expired records removed.`);
+            loadAdminData();
+        }
+
+        function openLoginModal() { document.getElementById('login-overlay').classList.remove('hidden'); }
+        function closeLogin() { document.getElementById('login-overlay').classList.add('hidden'); }
+        function checkLogin() { if(document.getElementById('admin-pass').value === ADMIN_PASS) { showPage('admin-page'); loadAdminData(); closeLogin(); } else alert("Denied."); }
+        function showPage(id) { document.getElementById('student-page').classList.add('hidden'); document.getElementById('admin-page').classList.add('hidden'); document.getElementById(id).classList.remove('hidden'); }
+        function clearAllBookings() { if(confirm("Wipe all data?")) { localStorage.removeItem('jambostar_bookings'); location.reload(); } }
+    </script>
+</body>
+</html>
